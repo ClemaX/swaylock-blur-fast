@@ -1,0 +1,49 @@
+#!/bin/bash
+
+set -xeuo pipefail
+umask 077
+
+# Grim JPEG quality, 0-100
+JPEG_QUALITY="${JPEG_QUALITY:-80}"
+# Gaussian blur strength
+BLUR_STRENGTH="${BLUR_STRENGTH:-25}"
+
+CONFIG_DIRS=("$HOME/.swaylock" "${XDG_CONFIG_HOME:-$HOME/.config}" "/etc")
+
+IMG_DIR=$(mktemp -d)
+
+get_outputs()
+{
+	swaymsg -pt get_outputs -r | jq '.[] | .name' --raw-output
+}
+
+render_images()
+{
+	local images=()
+
+	while read -r name
+	do
+		grim -o "$name" -t jpeg -q "$JPEG_QUALITY" - \
+		| vips gaussblur stdin .jpg "$BLUR_STRENGTH" > "$name.jpg" &
+
+		images+=("image=$name:$name.jpg")
+	done
+
+	for config_dir in "${CONFIG_DIRS[@]}"
+	do
+		if [ -f "$config_dir/config" ]
+		then
+			cat "$config_dir/config" && break
+		fi
+	done
+
+	wait
+
+	printf '%s\n' "${images[@]}"
+}
+
+pushd "$IMG_DIR"
+		get_outputs | render_images | swaylock --config /dev/stdin --daemonize
+popd
+
+rm -r "$IMG_DIR"
